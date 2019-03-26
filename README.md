@@ -1,4 +1,4 @@
-# TonChan - A mobile, native TurtleCoin wallet
+# Mobile, native OscillateCoin wallet based on [TonChan](https://github.com/turtlecoin/turtlecoin-mobile-wallet)
 
 ![Screenshot](https://i.imgur.com/F5LMYKl.png)
 
@@ -8,9 +8,9 @@ Note: Make sure you use yarn instead of npm. Since there is no package-lock.json
 
 * Clone the repo:
 
-`git clone https://github.com/turtlecoin/turtlecoin-mobile-wallet.git`
+`git clone https://github.com/oscillate-dev/oscillate-mobile-wallet`
 
-`cd turtlecoin-mobile-wallet`
+`cd oscillate-mobile-wallet`
 
 * Install React Native CLI
 
