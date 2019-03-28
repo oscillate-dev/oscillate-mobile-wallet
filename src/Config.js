@@ -17,12 +17,12 @@ const Config = {
     /**
      * If you can't figure this one out, I don't have high hopes
      */
-    coinName: 'TurtleCoin',
+    coinName: 'OscillateCoin',
 
     /**
      * Prefix for URI encoded addresses
      */
-    uriPrefix: 'turtlecoin://',
+    uriPrefix: 'oscillatecoin://',
 
     /**
      * How often to save the wallet, in milliseconds
@@ -39,7 +39,7 @@ const Config = {
      * The address prefix your coin uses - you can find this in CryptoNoteConfig.h.
      * In TurtleCoin, this converts to TRTL
      */
-    addressPrefix: 3914525,
+    addressPrefix: 0x271072,		/*  'hannw' in accordance with https://cryptonotestarter.org/tools.html  */
 
     /**
      * Request timeout for daemon operations in milliseconds
@@ -49,7 +49,7 @@ const Config = {
     /**
      * The block time of your coin, in seconds
      */
-    blockTargetTime: 30,
+    blockTargetTime: 60,
 
     /**
      * How often to process blocks, in millseconds
@@ -76,13 +76,13 @@ const Config = {
     /**
      * Your coins 'ticker', generally used to refer to the coin, i.e. 123 TRTL
      */
-    ticker: 'TRTL',
+    ticker: 'OSC',
 
     /**
      * Most people haven't mined any blocks, so lets not waste time scanning
      * them
      */
-    scanCoinbaseTransactions: false,
+    scanCoinbaseTransactions: true,
 
     /**
      * The minimum fee allowed for transactions, in ATOMIC units
@@ -179,7 +179,7 @@ const Config = {
     /**
      * Address to send dev fee to
      */
-    devFeeAddress: 'TRTLv1E3ThL66fHthRHyzPSDqeUazPA9eBQYkuRnp8svKgvdoecQtqhSRaD59CEuH8XnYsw3YGtw1RWsQSqtHLqUXu4tvk9LryR',
+    devFeeAddress: 'hannwMcPjKWdHc8cP7c5G9ekAuDUxKHvWak226sBd3J31MJdthYCmC7MxuJsqXFHwbSRJeQDVhii2TJFTcZMfjjcNtzoKaYGpRh',
 
     /**
      * Base url for price API
@@ -194,34 +194,41 @@ const Config = {
      * Default daemon to use. Can either be a BlockchainCacheApi(baseURL, SSL),
      * or a ConventionalDaemon(url, port).
      */
-    defaultDaemon: new BlockchainCacheApi('blockapi.turtlepay.io', true),
+    defaultDaemon: new ConventionalDaemon('134.209.75.124', 11246),
 
     /**
      * A link to where a bug can be reported for your wallet. Please update
      * this if you are forking, so we don't get reported bugs for your wallet...
      *
      */
-    repoLink: 'https://github.com/turtlecoin/turtlecoin-mobile-wallet/issues',
+    repoLink: 'https://github.com/oscillate-dev/oscillate-mobile-wallet/issues',
 
     /**
      * This only controls the name in the settings screen.
      */
-    appName: 'TonChan',
+    appName: 'Oscillate Wallet',
 
     /**
      * Slogan phrase during wallet CreateScreen
      */
-    sloganCreateScreen: 'Fast. Safe. Easy.',
+    sloganCreateScreen: 'Fast. Secure. Easy.',
 
     /**
      * Displayed in the settings screen
      */
-    appVersion: 'v0.0.8',
+    appVersion: 'v0.0.1',
 
     /**
      * Base URL for us to chuck a hash on the end, and find a transaction
      */
-    explorerBaseURL: 'https://explorer.turtlecoin.lol/?search=',
+    explorerBaseURL: 'http://osc.line-pool.ru/?hash=',
+
+    /**
+     * In case the explorer URL for transaction looks like
+     * http://osc.line-pool.ru/?hash=<hash>#blockchain_transaction
+     * you have to set postfix, otherwise - empty string
+     */
+    explorerURLPostfix: '#blockchain_transaction',
 
     /**
      * A link to your app on the Apple app store. Currently blank because we
