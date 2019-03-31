@@ -34,8 +34,12 @@ export async function getCoinPriceFromAPI() {
         const data = await request({
             json: true,
             method: 'GET',
+            url: Config.priceApiLink,
+            qs: {
+              ids: Config.ticker.toLowerCase(),
+              vs_currencies: getCurrencyTickers(),
+            },
             timeout: Config.requestTimeout,
-            url: uri,
         });
 
         const coinData = data[Config.coinName.toLowerCase()];
@@ -52,7 +56,7 @@ export async function getCoinPriceFromAPI() {
 }
 
 function getCurrencyTickers() {
-    return Constants.currencies.map((currency) => currency.ticker).join('%2C');
+    return Constants.currencies.map((currency) => currency.ticker).join(',');
 }
 
 export async function coinsToFiat(amount, currencyTicker) {
