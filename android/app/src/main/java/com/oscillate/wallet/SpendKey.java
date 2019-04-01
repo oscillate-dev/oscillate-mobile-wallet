@@ -1,4 +1,4 @@
-package com.tonchan;
+package com.oscillate.wallet;
 
 import com.facebook.react.bridge.Arguments;
 import com.facebook.react.bridge.ReadableMap;

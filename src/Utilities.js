@@ -129,7 +129,7 @@ export function parseURI(qrData) {
     console.log(qrData);
     /* It's a URI, try and get the data from it */
     if (qrData.startsWith(Config.uriPrefix)) {
-        /* Remove the turtlecoin:// prefix */
+        /* Remove the oscillatecoin:// prefix */
         let data = qrData.replace(Config.uriPrefix, '');
 
         const index = data.indexOf('?');

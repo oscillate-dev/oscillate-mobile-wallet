@@ -1,4 +1,4 @@
-package com.tonchan;
+package com.oscillate.wallet;
 
 import android.app.Application;
 import android.content.Intent;
