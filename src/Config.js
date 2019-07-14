@@ -76,7 +76,7 @@ const Config = {
     /**
      * Your coins 'ticker', generally used to refer to the coin, i.e. 123 TRTL
      */
-    ticker: 'OSC',
+    ticker: 'OSL',
 
     /**
      * Most people haven't mined any blocks, so lets not waste time scanning

@@ -4,8 +4,6 @@
 
 import React from 'react';
 
-import Realm from 'realm';
-
 import TextTicker from 'react-native-text-ticker';
 
 import Entypo from 'react-native-vector-icons/Entypo';
@@ -19,8 +17,10 @@ import SimpleLineIcons from 'react-native-vector-icons/SimpleLineIcons';
 import { deleteUserPinCode } from '@haskkor/react-native-pincode';
 
 import {
-    View, FlatList, Alert, Text, Linking, NetInfo, ScrollView, Platform
+    View, FlatList, Alert, Text, Linking, ScrollView, Platform
 } from 'react-native';
+
+import NetInfo from "@react-native-community/netinfo";
 
 import Config from './Config';
 import ListItem from './ListItem';
@@ -30,7 +30,7 @@ import Constants from './Constants';
 import { Styles } from './Styles';
 import { Globals } from './Globals';
 import { SeedComponent, CopyButton } from './SharedComponents';
-import { setHaveWallet, savePreferencesToDatabase } from './Database';
+import { savePreferencesToDatabase, setHaveWallet } from './Database';
 import { navigateWithDisabledBack, toastPopUp, getArrivalTime } from './Utilities';
 
 export class FaqScreen extends React.Component {
@@ -75,7 +75,7 @@ export class FaqScreen extends React.Component {
                     }}>
                         The wallet does support background syncing, however, it may take some time before you notice this.{'\n\n'}
                         Every 15 minutes, a background sync event is fired. (This is a limitation of the mobile platform){'\n\n'}
-                        After that, background syncing will continue for {Platform.OS === 'ios' ? ' 30 seconds' : ' 14 minutes'}, until the next background sync event is fired.{'\n\n'}
+                        After that, background syncing will continue for {Platform.OS === 'ios' ? '30 seconds' : '14 minutes'}, until the next background sync event is fired.{'\n\n'}
                         However, depending upon your phone model, battery, and OS, these background syncs may occur later than expected, or not at all.{'\n\n'}
                         For further information, see{' '}
                         <Text
@@ -387,7 +387,7 @@ export class SwapCurrencyScreen extends React.Component {
                                     this.props.navigation.dispatch(navigateWithDisabledBack('Settings'));
 
                                     /* And go back to the main screen. */
-                                    this.props.navigation.navigate('Main');
+                                    this.props.navigation.navigate('Main', { reloadBalance: true } );
                                 }}
                             />
                         )}
@@ -515,7 +515,7 @@ export class SettingsScreen extends React.Component {
                                         limitData: Globals.preferences.limitData,
                                     });
 
-                                    const netInfo = await NetInfo.getConnectionInfo();
+                                    const netInfo = await NetInfo.fetch();
                                     
                                     if (Globals.preferences.limitData && netInfo.type === 'cellular') {
                                         Globals.wallet.stop();
@@ -613,7 +613,7 @@ export class SettingsScreen extends React.Component {
                                 description: 'Leave a rating or send the link to your friends',
                                 icon: {
                                     iconName: Platform.OS === 'ios' ? 'app-store' : 'google-play',
-                                    IconType: Platform.OS === 'ios' ? Entypo : FontAwesome,
+                                    IconType: Entypo,
                                 },
                                 onClick: () => {
                                     const link = Platform.OS === 'ios' ? Config.appStoreLink : Config.googlePlayLink;
@@ -737,23 +737,22 @@ function deleteWallet(navigation) {
         'Are you sure you want to delete your wallet? If your seed is not backed up, your funds will be lost!',
         [
             {text: 'Delete', onPress: () => {
-                /* Disabling saving */
-                clearInterval(Globals.backgroundSaveTimer);
+                (async () => {
+                    /* Disabling saving */
+                    clearInterval(Globals.backgroundSaveTimer);
 
-                /* Delete pin code */
-                deleteUserPinCode();
+                    /* Delete pin code */
+                    deleteUserPinCode();
 
-                /* Delete old wallet */
-                Realm.deleteFile({});
+                    await setHaveWallet(false);
 
-                setHaveWallet(false);
+                    Globals.wallet.stop();
 
-                Globals.wallet.stop();
+                    Globals.reset();
 
-                Globals.reset();
-
-                /* And head back to the wallet choose screen */
-                navigation.navigate('Login');
+                    /* And head back to the wallet choose screen */
+                    navigation.navigate('Login');
+                })();
             }},
             {text: 'Cancel', style: 'cancel'},
         ],
@@ -768,7 +767,7 @@ function resetWallet(navigation) {
             {text: 'Resync', onPress: () => {
                 Globals.wallet.rescan();
                 toastPopUp('Wallet resync initiated');
-                navigation.navigate('Main');
+                navigation.navigate('Main', { reloadBalance: true } );
             }},
             {text: 'Cancel', style: 'cancel'},
         ],

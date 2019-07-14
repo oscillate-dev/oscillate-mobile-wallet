@@ -10,11 +10,11 @@ import QRCode from 'react-native-qrcode-svg';
 
 import PushNotification from 'react-native-push-notification';
 
-import { NavigationActions } from 'react-navigation';
+import { NavigationActions, NavigationEvents } from 'react-navigation';
 
 import {
     Text, View, Image, TouchableOpacity, PushNotificationIOS,
-    AppState, Platform, Linking,
+    AppState, Platform, Linking, ScrollView, RefreshControl, Dimensions,
 } from 'react-native';
 
 import { prettyPrintAmount, LogLevel } from 'turtlecoin-wallet-backend';
@@ -24,16 +24,13 @@ import Config from './Config';
 import { Styles } from './Styles';
 import { handleURI } from './Utilities';
 import { ProgressBar } from './ProgressBar';
+import { saveToDatabase } from './Database';
 import { Globals, initGlobals } from './Globals';
 import { reportCaughtException } from './Sentry';
 import { processBlockOutputs } from './NativeCode';
 import { initBackgroundSync } from './BackgroundSync';
 import { CopyButton, OneLineText } from './SharedComponents';
 import { coinsToFiat, getCoinPriceFromAPI } from './Currency';
-
-import {
-    saveToDatabase, saveLastUpdatedToDatabase, compactDBs, shouldCompactDB
-} from './Database';
 
 async function init(navigation) {
     Globals.wallet.scanCoinbaseTransactions(Globals.preferences.scanCoinbaseTransactions);
@@ -80,20 +77,6 @@ async function init(navigation) {
     if (url) {
         handleURI(url, navigation);
     }
-
-    /* More than 48 hours have passed since last compaction */
-    if (await shouldCompactDB(2)) {
-        /* Perform the operation in 2 minutes... hopefully they won't be bothered
-           by the interruption then. */
-        setTimeout(async () => {
-            const success = await compactDBs(Globals.pinCode);
-
-            if (success) {
-                saveLastUpdatedToDatabase(new Date());
-                Globals.logger.addLogMessage('Compaction completed successfully');
-            }
-        }, 1000 * 60 * 2);
-    }
 }
 
 function handleNotification(notification) {
@@ -113,7 +96,7 @@ function sendNotification(transaction) {
 
     PushNotification.localNotification({
         title: 'Incoming transaction received!',
-        message: `You were sent ${prettyPrintAmount(transaction.totalAmount())}`,
+        message: `You were sent ${prettyPrintAmount(transaction.totalAmount(), Config)}`,
         data: JSON.stringify(transaction.hash),
     });
 }
@@ -135,26 +118,83 @@ export class MainScreen extends React.Component {
     constructor(props) {
         super(props);
 
+        this.refresh = this.refresh.bind(this);
+        this.handleURI = this.handleURI.bind(this);
+        this.handleAppStateChange = this.handleAppStateChange.bind(this);
+
+        const [unlockedBalance, lockedBalance] = Globals.wallet.getBalance();
+
         this.state = {
             addressOnly: false,
+            unlockedBalance,
+            lockedBalance,
         }
 
-        this.handleURI = this.handleURI.bind(this);
+        this.updateBalance();
 
         init(this.props.navigation);
+
+        Globals.wallet.on('transaction', () => {
+            this.updateBalance();
+        });
+
+        Globals.wallet.on('createdtx', () => {
+            this.updateBalance();
+        });
+    }
+
+    async updateBalance() {
+        const tmpPrice = await getCoinPriceFromAPI();
+
+        if (tmpPrice !== undefined) {
+            Globals.coinPrice = tmpPrice;
+        }
+
+        const [unlockedBalance, lockedBalance] = Globals.wallet.getBalance();
+
+        const coinValue = await coinsToFiat(
+            unlockedBalance + lockedBalance, Globals.preferences.currency
+        );
+
+        this.setState({
+            unlockedBalance,
+            lockedBalance,
+            coinValue,
+        });
     }
 
     handleURI(url) {
         handleURI(url, this.props.navigation);
     }
 
+    /* Update coin price on coming to foreground */
+    handleAppStateChange(appState) {
+        if (appState === 'active') {
+            this.updateBalance();
+        }
+    }
+
     componentDidMount() {
+        AppState.addEventListener('change', this.handleAppStateChange);
         Linking.addEventListener('url', this.handleURI);
         initBackgroundSync();
     }
 
     componentWillUnmount() {
+        AppState.removeEventListener('change', this.handleAppStateChange);
         Linking.removeEventListener('url', this.handleURI);
+    }
+
+    async refresh() {
+        this.setState({
+            refreshing: true,
+        });
+
+        await this.updateBalance();
+
+        this.setState({
+            refreshing: false,
+        });
     }
 
     render() {
@@ -162,27 +202,57 @@ export class MainScreen extends React.Component {
            This is nice if you want someone to scan the QR code, but don't
            want to display your balance. */
         return(
-            <View style={{ flex: 1, justifyContent: 'space-between', backgroundColor: this.props.screenProps.theme.backgroundColour }}>
-
-                <View style={{ 
-                    height: '20%', 
-                    flexDirection: 'row',
-                    justifyContent: 'space-between',
-                    margin: 10,
-                    borderRadius: 10,
-                    opacity: this.state.addressOnly ? 0 : 100,
+            <ScrollView
+                refreshControl={
+                    <RefreshControl
+                        refreshing={this.state.refreshing}
+                        onRefresh={this.refresh}
+                        title='Updating coin price...'
+                    />
+                }
+                style={{
+                    backgroundColor: this.props.screenProps.theme.backgroundColour,
+                }}
+                contentContainerstyle={{
+                    flex: 1,
+                }}
+            >
+                <NavigationEvents
+                    onWillFocus={(payload) => {
+                        if (payload && payload.action && payload.action.params && payload.action.params.reloadBalance) {
+                            this.updateBalance();
+                        }
+                    }}
+                />
+                <View style={{
+                    justifyContent: 'space-around',
+                    height: Dimensions.get('window').height - 73,
                 }}>
-                    <BalanceComponent {...this.props}/>
-                </View>
+                    <View style={{ 
+                        height: '20%', 
+                        flexDirection: 'row',
+                        justifyContent: 'space-between',
+                        margin: 10,
+                        borderRadius: 10,
+                        opacity: this.state.addressOnly ? 0 : 100,
+                    }}>
+                        <BalanceComponent
+                            unlockedBalance={this.state.unlockedBalance}
+                            lockedBalance={this.state.lockedBalance}
+                            coinValue={this.state.coinValue}
+                            {...this.props}
+                        />
+                    </View>
 
-                <TouchableOpacity onPress={() => this.setState({ addressOnly: !this.state.addressOnly })}>
-                    <AddressComponent {...this.props}/>
-                </TouchableOpacity>
+                    <TouchableOpacity onPress={() => this.setState({ addressOnly: !this.state.addressOnly })}>
+                        <AddressComponent {...this.props}/>
+                    </TouchableOpacity>
 
-                <View style={{ flex: 1, opacity: this.state.addressOnly ? 0 : 100 }}>
-                    <SyncComponent {...this.props}/>
+                    <View style={{ opacity: this.state.addressOnly ? 0 : 100, flex: 1 }}>
+                        <SyncComponent {...this.props}/>
+                    </View>
                 </View>
-            </View>
+            </ScrollView>
         );
     }
 }
@@ -244,64 +314,19 @@ class BalanceComponent extends React.Component {
     constructor(props) {
         super(props);
 
-        const [unlockedBalance, lockedBalance] = Globals.wallet.getBalance();
-
         this.state = {
-            unlockedBalance,
-            lockedBalance,
             expandedBalance: false,
         };
-
-        this.counter = 0;
-
-        this.tick();
-    }
-
-    tick() {
-        (async () => {
-            /* Due to a limitation in react native, setting large values for
-               setInterval() is discouraged. Instead, piggy back of the existing
-               10000ms timer (10s), and refresh the coin price every 30 minutes. */
-            if (this.counter % 180 === 0) {
-                const tmpPrice = await getCoinPriceFromAPI();
-
-                if (tmpPrice !== undefined) {
-                    Globals.coinPrice = tmpPrice;
-                }
-            }
-
-            const [unlockedBalance, lockedBalance] = Globals.wallet.getBalance();
-
-            const coinValue = await coinsToFiat(
-                unlockedBalance + lockedBalance, Globals.preferences.currency
-            );
-
-            this.setState({
-                unlockedBalance,
-                lockedBalance,
-                coinValue,
-            });
-
-            this.counter++;
-        })();
-    }
-
-    componentDidMount() {
-        this.interval = setInterval(() => this.tick(), 10000);
-    }
-
-    componentWillUnmount() {
-        clearInterval(this.interval);
     }
 
     render() {
         const compactBalance = <OneLineText
-                                     style={{ color: this.state.lockedBalance === 0 ? this.props.screenProps.theme.primaryColour : 'orange', fontSize: 35}}
+                                     style={{ color: this.props.lockedBalance === 0 ? this.props.screenProps.theme.primaryColour : 'orange', fontSize: 35}}
                                      onPress={() => this.setState({
                                          expandedBalance: !this.state.expandedBalance
                                      })}
                                 >
-                                     {prettyPrintAmount(this.state.unlockedBalance + this.state.lockedBalance)}
+                                     {prettyPrintAmount(this.props.unlockedBalance + this.props.lockedBalance, Config)}
                                </OneLineText>;
 
         const lockedBalance = <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
@@ -310,7 +335,7 @@ class BalanceComponent extends React.Component {
                                           onPress={() => this.setState({
                                              expandedBalance: !this.state.expandedBalance
                                           })}>
-                                        {prettyPrintAmount(this.state.lockedBalance)}
+                                        {prettyPrintAmount(this.props.lockedBalance, Config)}
                                     </OneLineText>
                               </View>;
 
@@ -318,9 +343,9 @@ class BalanceComponent extends React.Component {
                                     <FontAwesome name={'unlock'} size={22} color={this.props.screenProps.theme.primaryColour} style={{marginRight: 7}}/>
                                     <OneLineText style={{ color: this.props.screenProps.theme.primaryColour, fontSize: 25}}
                                           onPress={() => this.setState({
-                                             expandedBalance: !this.state.expandedBalance
+                                             expandedBalance: !this.props.expandedBalance
                                           })}>
-                                        {prettyPrintAmount(this.state.unlockedBalance)}
+                                        {prettyPrintAmount(this.props.unlockedBalance, Config)}
                                     </OneLineText>
                                 </View>;
 
@@ -338,7 +363,7 @@ class BalanceComponent extends React.Component {
                     {this.state.expandedBalance ? expandedBalance : compactBalance}
 
                     <Text style={{ color: this.props.screenProps.theme.slightlyMoreVisibleColour, fontSize: 20 }}>
-                        {this.state.coinValue}
+                        {this.props.coinValue}
                     </Text>
             </View>
         );
@@ -407,7 +432,7 @@ class SyncComponent extends React.Component {
 
     render() {
         return(
-            <View style={{ justifyContent: 'flex-end', alignItems: 'center', marginBottom: 20, marginTop: 50 }}>
+            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', bottom: 20, position: 'absolute', left: 0, right: 0 }}>
                 <Text style={{
                     color: this.props.screenProps.theme.slightlyMoreVisibleColour,
                 }}>

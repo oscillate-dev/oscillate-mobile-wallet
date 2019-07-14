@@ -4,6 +4,8 @@
 
 import Realm from 'realm';
 
+import SQLite from 'react-native-sqlite-storage';
+
 import { AsyncStorage } from 'react-native';
 
 import { sha512 } from 'js-sha512';
@@ -15,20 +17,162 @@ import { Globals } from './Globals';
 
 import { reportCaughtException } from './Sentry';
 
-function getPriceDataSchema() {
-    var obj = {
-        name: 'PriceData',
-        primaryKey: 'primaryKey',
-        properties: {
-            primaryKey: 'int',
+/* Use promise based API instead of callback based */
+SQLite.enablePromise(true);
+
+let database;
+
+/* Perform conversion from realm to SQL, and delete old realm stuff */
+async function realmToSql(pinCode) {
+    const [wallet, error] = await loadWalletFromRealm(pinCode);
+
+    await Realm.deleteFile({
+    });
+
+    await Realm.deleteFile({
+        path: 'Preferences.realm'
+    });
+
+    await Realm.deleteFile({
+        path: 'PriceData.realm'
+    });
+
+    await Realm.deleteFile({
+        path: 'PayeeData.realm'
+    });
+
+    await Realm.deleteFile({
+        path: 'TransactionDetailsData.realm'
+    });
+
+    /* Got the wallet from realm - store it in SQLite for future */
+    if (wallet) {
+        saveWallet(wallet);
+    }
+
+    return [wallet, error];
+}
+
+export async function deleteDB() {
+    try {
+        await setHaveWallet(false);
+
+        await SQLite.deleteDatabase({
+            name: 'data.DB',
+            location: 'default',
+        });
+    } catch (err) {
+        Globals.logger.addLogMessage(err);
+    }
+}
+
+async function saveWallet(wallet) {
+    await database.transaction((tx) => {
+        tx.executeSql(
+            `UPDATE
+                wallet
+            SET
+                json = ?
+            WHERE
+                id = 0`,
+            [wallet]
+        );
+    });
+}
+
+async function loadWallet() {
+    try {
+        const [data] = await database.executeSql(
+            `SELECT
+                json
+            FROM
+                wallet
+            WHERE
+                id = 0`,
+        );
+
+        if (data && data.rows && data.rows.length >= 1) {
+            return data.rows.item(0).json;
         }
+    } catch (err) {
+        reportCaughtException(err);
     }
 
-    for (const currency of Constants.currencies) {
-        obj.properties[currency.ticker] = 'double';
-    }
+    return undefined;
+}
 
-    return obj;
+/* Create the tables if we haven't made them already */
+async function createTables(DB) {
+    await DB.transaction((tx) => {
+        /* We get JSON out from our wallet backend, and load JSON in from our
+           wallet backend - it's a little ugly, but it's faster to just read/write
+           json to the DB rather than structuring it. */
+        tx.executeSql(
+            `CREATE TABLE IF NOT EXISTS wallet (
+                id INTEGER PRIMARY KEY,
+                json TEXT
+            )`
+        );
+
+        tx.executeSql(
+            `CREATE TABLE IF NOT EXISTS preferences (
+                id INTEGER PRIMARY KEY,
+                currency TEXT,
+                notificationsenabled BOOLEAN,
+                scancoinbasetransactions BOOLEAN,
+                limitdata BOOLEAN,
+                theme TEXT,
+                pinconfirmation BOOLEAN
+            )`
+        );
+
+        tx.executeSql(
+            `CREATE TABLE IF NOT EXISTS payees (
+                nickname TEXT,
+                address TEXT,
+                paymentid TEXT
+            )`
+        );
+
+        tx.executeSql(
+            `CREATE TABLE IF NOT EXISTS transactiondetails (
+                hash TEXT,
+                memo TEXT,
+                address TEXT,
+                payee TEXT
+            )`
+        );
+
+        /* Enter initial wallet value that we're going to overwrite later via
+           primary key, provided it doesn't already exist */
+        tx.executeSql(
+            `INSERT OR IGNORE INTO wallet
+                (id, json)
+            VALUES
+                (0, '')`
+        );
+
+        /* Setup default preference values */
+        tx.executeSql(
+            `INSERT OR IGNORE INTO preferences
+                (id, currency, notificationsenabled, scancoinbasetransactions, limitdata, theme, pinconfirmation)
+            VALUES
+                (0, 'usd', 1, 0, 0, 'darkMode', 0)`
+        );
+    });
+}
+
+export async function openDB() {
+    try {
+        database = await SQLite.openDatabase({
+            name: 'data.DB',
+            location: 'default',
+        });
+
+        await createTables(database);
+    } catch (err) {
+        Globals.logger.addLogMessage('Failed to open DB: ' + err);
+    }
 }
 
 const WalletSchema = {
@@ -148,132 +292,6 @@ const SynchronizationStatusSchema = {
     }
 }
 
-const PreferencesSchema = {
-    name: 'Preferences',
-    primaryKey: 'primaryKey',
-    properties: {
-        primaryKey: 'int',
-        currency: 'string',
-        notificationsEnabled: 'bool',
-        scanCoinbaseTransactions: 'bool',
-        limitData: 'bool',
-        theme: 'string',
-        pinConfirmation: 'bool',
-    }
-}
-
-const PayeeSchema = {
-    name: 'Payee',
-    primaryKey: 'nickname',
-    properties: {
-        nickname: 'string',
-        address: 'string',
-        paymentID: 'string',
-    }
-}
-
-const TransactionDetailsSchema = {
-    name: 'TransactionDetails',
-    privateKey: 'hash',
-    properties: {
-        hash: 'string',
-        memo: 'string',
-        address: 'string',
-        payee: 'string',
-    }
-}
-
-const CompactSchema = {
-    name: 'CompactionInfo',
-    primaryKey: 'primaryKey',
-    properties: {
-        primaryKey: 'int',
-        lastUpdated: 'date',
-    }
-}
-
-function transactionInputToRealm(json, realm) {
-    return realm.create('TransactionInput', json);
-}
-
-function unconfirmedInputToRealm(json, realm) {
-    return realm.create('UnconfirmedInput', json);
-}
-
-function transfersToRealm(json, realm) {
-    return realm.create('Transfers', json);
-}
-
-function transactionToRealm(json, realm) {
-    return realm.create('Transaction', {
-        transfers: json.transfers.map((x) => transfersToRealm(x, realm)),
-        hash: json.hash,
-        fee: json.fee,
-        blockHeight: json.blockHeight,
-        timestamp: json.timestamp,
-        paymentID: json.paymentID,
-        unlockTime: json.unlockTime,
-        isCoinbaseTransaction: json.isCoinbaseTransaction,
-    });
-}
-
-function subWalletToRealm(json, realm) {
-    return realm.create('SubWallet', {
-        unspentInputs: json.unspentInputs.map((x) => transactionInputToRealm(x, realm)),
-        spentInputs: json.spentInputs.map((x) => transactionInputToRealm(x, realm)),
-        lockedInputs: json.lockedInputs.map((x) => transactionInputToRealm(x, realm)),
-        unconfirmedIncomingAmounts: json.unconfirmedIncomingAmounts.map((x) => unconfirmedInputToRealm(x, realm)),
-        publicSpendKey: json.publicSpendKey,
-        privateSpendKey: json.privateSpendKey,
-        syncStartTimestamp: json.syncStartTimestamp,
-        syncStartHeight: json.syncStartHeight,
-        address: json.address,
-        isPrimaryAddress: json.isPrimaryAddress,
-    });
-}
-
-function subWalletsToRealm(json, realm) {
-    return realm.create('SubWallets', {
-        publicSpendKeys: json.publicSpendKeys,
-        subWallet: json.subWallet.map((x) => subWalletToRealm(x, realm)),
-        transactions: json.transactions.map((x) => transactionToRealm(x, realm)),
-        lockedTransactions: json.lockedTransactions.map((x) => transactionToRealm(x, realm)),
-        privateViewKey: json.privateViewKey,
-        isViewWallet: json.isViewWallet,
-        txPrivateKeys: json.txPrivateKeys.map((x) => txPrivateKeyToRealm(x, realm))
-    });
-}
-
-function synchronizationStatusToRealm(json, realm) {
-    return realm.create('SynchronizationStatus', json);
-}
-
-function txPrivateKeyToRealm(json, realm) {
-    return realm.create('TxPrivateKeys', json);
-}
-
-function walletSynchronizerToRealm(json, realm) {
-    return realm.create('WalletSynchronizer', {
-        startTimestamp: json.startTimestamp,
-        startHeight: json.startHeight,
-        privateViewKey: json.privateViewKey,
-        transactionSynchronizerStatus: synchronizationStatusToRealm(json.transactionSynchronizerStatus, realm),
-    });
-}
-
-/* Convert a wallet to a realm object so we can store it in the DB */
-function walletToRealm(wallet, realm) {
-    let json = JSON.parse(wallet.toJSONString());
-
-    return realm.create('Wallet', {
-        /* Only one wallet stored in the DB, so this can be constant at 0 */
-        primaryKey: 0,
-        walletFileFormatVersion: Constants.walletFileFormatVersion,
-        subWallets: subWalletsToRealm(json.subWallets, realm),
-        walletSynchronizer: walletSynchronizerToRealm(json.walletSynchronizer, realm),
-    }, true /* Update with new wallet based on primary key */);
-}
-
 function realmToTransactionInputJSON(realmObj) {
     return JSON.parse(JSON.stringify(realmObj));
 }
@@ -368,132 +386,122 @@ function realmToWalletJSON(realmObj) {
 }
 
 export async function savePreferencesToDatabase(preferences) {
-    preferences['primaryKey'] = 1;
-
-    withDB(
-        [PreferencesSchema],
-        'Preferences.realm',
-        async (realm) => {
-            await realm.write(() => {
-                return realm.create('Preferences', preferences, true);
-            });
-        }
-    );
+    await database.transaction((tx) => {
+        tx.executeSql(
+            `UPDATE
+                preferences
+            SET
+                currency = ?,
+                notificationsenabled = ?,
+                scancoinbasetransactions = ?,
+                limitdata = ?,
+                theme = ?,
+                pinconfirmation = ?
+            WHERE
+                id = 0`,
+            [
+                preferences.currency,
+                preferences.notificationsEnabled ? 1 : 0,
+                preferences.scanCoinbaseTransactions ? 1 : 0,
+                preferences.limitData ? 1 : 0,
+                preferences.theme,
+                preferences.pinConfirmation ? 1 : 0,
+            ]
+        );
+    });
 }
 
 export async function loadPreferencesFromDatabase() {
-    return withDB(
-        [PreferencesSchema],
-        'Preferences.realm',
-        (realm) => {
-            if (realm.objects('Preferences').length > 0) {
-                return JSON.parse(JSON.stringify(realm.objects('Preferences')[0]));
-            }
-
-            return undefined;
-        }
+    const [data] = await database.executeSql(
+        `SELECT
+            currency,
+            notificationsenabled,
+            scancoinbasetransactions,
+            limitdata,
+            theme,
+            pinconfirmation
+        FROM
+            preferences
+        WHERE
+            id = 0`,
     );
+
+    if (data && data.rows && data.rows.length >= 1) {
+        const item = data.rows.item(0);
+
+        return {
+            currency: item.currency,
+            notificationsEnabled: item.notificationsenabled === 1,
+            scanCoinbaseTransactions: item.scancoinbasetransactions === 1,
+            limitData: item.limitdata === 1,
+            theme: item.theme,
+            pinConfirmation: item.pinconfirmation === 1,
+        }
+    }
+
+    return undefined;
 }
 
-export async function savePriceDataToDatabase(priceData) {
-    priceData['primaryKey'] = 1;
-
-    withDB(
-        [getPriceDataSchema()],
-        'PriceData.realm',
-        async (realm) => {
-            await realm.write(() => {
-                return realm.create('PriceData', priceData, true);
-            });
-        }
-    );
-}
-
-export async function loadPriceDataFromDatabase() {
-    return withDB(
-        [getPriceDataSchema()],
-        'PriceData.realm',
-        (realm) => {
-            if (realm.objects('PriceData').length > 0) {
-                return JSON.parse(JSON.stringify(realm.objects('PriceData')[0]));
-            }
-
-            return undefined;
-        }
-    );
-}
-
-/**
- * Note - saves a single payee to the DB, which contains many payees
- */
 export async function savePayeeToDatabase(payee) {
-    withDB(
-        [PayeeSchema],
-        'PayeeData.realm',
-        async (realm) => {
-            await realm.write(() => {
-                return realm.create('Payee', payee, true);
-            });
-        }
-    );
+    await database.transaction((tx) => {
+        tx.executeSql(
+            `INSERT INTO payees
+                (nickname, address, paymentid)
+            VALUES
+                (?, ?, ?)`,
+            [
+                payee.nickname,
+                payee.address,
+                payee.paymentID,
+            ]
+        );
+    });
 }
 
 export async function removePayeeFromDatabase(nickname) {
-    withDB(
-        [PayeeSchema],
-        'PayeeData.realm',
-        async (realm) => {
-            const payee = realm.objects('Payee').filtered('nickname = $0', nickname);
-
-            if (payee.length > 0) {
-                await realm.write(() => {
-                    realm.delete(payee);
-                });
-            }
-        }
-    );
+    await database.transaction((tx) => {
+        tx.executeSql(
+            `DELETE FROM
+                payees
+            WHERE
+                nickname = ?`,
+            [ nickname ]
+        );
+    });
 }
 
 export async function loadPayeeDataFromDatabase() {
-    return withDB(
-        [PayeeSchema],
-        'PayeeData.realm',
-        (realm) => {
-            if (realm.objects('Payee').length > 0) {
-                /* Has science gone too far? */
-                return realm.objects('Payee').map((x) => JSON.parse(JSON.stringify((x))));
-            }
-
-            return undefined;
-        }
+    const [data] = await database.executeSql(
+        `SELECT
+            nickname,
+            address,
+            paymentid
+        FROM
+            payees`
     );
+
+    if (data && data.rows && data.rows.length) {
+        const res = [];
+
+        for (let i = 0; i < data.rows.length; i++) {
+            const item = data.rows.item(i);
+            res.push({
+                nickname: item.nickname,
+                address: item.address,
+                paymentID: item.paymentid,
+            });
+        }
+
+        return res;
+    }
+
+    return undefined;
 }
 
 export async function saveToDatabase(wallet, pinCode) {
-    /* Get encryption key from pin code */
-    var key = sha512.arrayBuffer(pinCode.toString());
-
     try {
-        /* Open the DB */
-        const realm = await Realm.open({
-            schema: [
-                WalletSchema, WalletSynchronizerSchema, SubWalletSchema,
-                TransactionSchema, SubWalletsSchema, TxPrivateKeysSchema,
-                TransfersSchema, TransactionInputSchema, UnconfirmedInputSchema,
-                SynchronizationStatusSchema
-            ],
-            encryptionKey: key,
-        });
-
-        try {
-            /* Write the wallet to the DB, overwriting old wallet */
-            await realm.write(() => {
-                walletToRealm(wallet, realm)
-                setHaveWallet(true);
-            })
-        } finally {
-            realm.close();
-        }
+        await saveWallet(wallet.toJSONString());
+        await setHaveWallet(true);
     } catch (err) {
         reportCaughtException(err);
         Globals.logger.addLogMessage('Err saving wallet: ' + err);
@@ -501,6 +509,18 @@ export async function saveToDatabase(wallet, pinCode) {
 }
 
 export async function loadFromDatabase(pinCode) {
+    const wallet = await loadWallet();
+
+    if (wallet) {
+        return [wallet, undefined];
+    }
+
+    return realmToSql(pinCode);
+}
+
+export async function loadWalletFromRealm(pinCode) {
+    /* Looks like we haven't converted from realm DB yet, lets try opening from
+       there */
     var key = sha512.arrayBuffer(pinCode.toString());
 
     try {
@@ -555,172 +575,49 @@ export async function setHaveWallet(haveWallet) {
     }
 }
 
-/**
- * Note - saves a single transactiondetails to the DB, which contains many payees
- */
-export async function saveTransactionDetailsToDatabase(details) {
-    withDB(
-        [TransactionDetailsSchema],
-        'TransactionDetailsData.realm',
-        async (realm) => {
-            await realm.write(() => {
-                return realm.create('TransactionDetails', details, true);
+export async function saveTransactionDetailsToDatabase(txDetails) {
+    await database.transaction((tx) => {
+        tx.executeSql(
+            `INSERT INTO transactiondetails
+                (hash, memo, address, payee)
+            VALUES
+                (?, ?, ?, ?)`,
+            [
+                txDetails.hash,
+                txDetails.memo,
+                txDetails.address,
+                txDetails.payee
+            ]
+        );
+    });
+}
+
+export async function loadTransactionDetailsFromDatabase() {
+    const [data] = await database.executeSql(
+        `SELECT
+            hash,
+            memo,
+            address,
+            payee
+        FROM
+            transactiondetails`
+    );
+
+    if (data && data.rows && data.rows.length) {
+        const res = [];
+
+        for (let i = 0; i < data.rows.length; i++) {
+            const item = data.rows.item(i);
+            res.push({
+                hash: item.hash,
+                memo: item.memo,
+                address: item.address,
+                payee: item.payee,
             });
         }
-    );
-}
 
-export async function removeTransactionDetailsFromDatabase(hash) {
-    withDB(
-        [TransactionDetailsSchema],
-        'TransactionDetailsData.realm',
-        async (realm) => {
-            const details = realm.objects('TransactionDetails').filtered('hash = $0', hash);
-
-            if (details.length > 0) {
-                await realm.write(() => {
-                    realm.delete(details);
-                });
-            }
-        }
-    );
-}
-
-export function loadTransactionDetailsFromDatabase() {
-    return withDB(
-        [TransactionDetailsSchema],
-        'TransactionDetailsData.realm',
-        (realm) => {
-            if (realm.objects('TransactionDetails').length > 0) {
-                /* Has science gone too far? */
-                return realm.objects('TransactionDetails').map((x) => JSON.parse(JSON.stringify((x))));
-            }
-
-            return undefined;
-        }
-    );
-}
-
-export function saveLastUpdatedToDatabase(date) {
-    const data = {
-        lastUpdated: date,
-        primaryKey: 0,
+        return res;
     }
 
-    withDB(
-        [CompactSchema],
-        'CompactionInfo.realm',
-        async (realm) => {
-            await realm.write(() => {
-                return realm.create('CompactionInfo', data, true);
-            });
-        }
-    );
-}
-
-export function loadLastUpdatedFromDatabase() {
-    return withDB(
-        [CompactSchema],
-        'CompactionInfo.realm',
-        (realm) => {
-            if (realm.objects('CompactionInfo').length > 0) {
-                return new Date(realm.objects('CompactionInfo')[0].lastUpdated);
-            }
-
-            return new Date(0);
-        }
-    ) || new Date(0);
-}
-
-async function withDB(schema, path, func, deleteIfMigrationNeeded) {
-    try {
-        let realm = await Realm.open({
-            schema: schema,
-            path: path,
-            deleteRealmIfMigrationNeeded: deleteIfMigrationNeeded === undefined ? true : deleteIfMigrationNeeded,
-        });
-
-        try {
-            return await func(realm);
-        } finally {
-            realm.close();
-        }
-    } catch (err) {
-        reportCaughtException(err);
-        Globals.logger.addLogMessage('Error interacting with DB: ' + err);
-        return undefined;
-    }
-}
-
-export async function compactDBs(pinCode) {
-    Globals.logger.addLogMessage('Attempting to compact DB...');
-
-    var key = sha512.arrayBuffer(pinCode.toString());
-
-    try {
-        await withDB(
-            [TransactionDetailsSchema],
-            'TransactionDetailsData.realm',
-            (realm) => {
-                realm.compact();
-            }
-        );
-
-        await withDB(
-            [PayeeSchema],
-            'PayeeData.realm',
-            (realm) => {
-                realm.compact();
-            }
-        );
-
-        await withDB(
-            [getPriceDataSchema()],
-            'PriceData.realm',
-            (realm) => {
-                realm.compact();
-            }
-        );
-
-        await withDB(
-            [PreferencesSchema],
-            'Preferences.realm',
-            (realm) => {
-                realm.compact();
-            }
-        );
-
-        let realm = await Realm.open({
-            schema: [
-                WalletSchema, WalletSynchronizerSchema, SubWalletSchema,
-                TransactionSchema, SubWalletsSchema, TxPrivateKeysSchema,
-                TransfersSchema, TransactionInputSchema, UnconfirmedInputSchema,
-                SynchronizationStatusSchema
-            ],
-            encryptionKey: key,
-        });
-
-        try {
-            realm.compact();
-        } finally {
-            realm.close();
-        }
-    } catch (err) {
-        console.log('Failed to compact DBs: ' + err);
-        return false;
-    }
-
-    return true;
-}
-
-export async function shouldCompactDB(requiredDayDifference) {
-    const lastCompacted = await loadLastUpdatedFromDatabase();
-
-    const now = new Date();
-
-    const actualDayDifference = Math.floor(
-        (now.getTime() - lastCompacted.getTime()) / (1000 * 3600 * 24)
-    );
-
-    return actualDayDifference > requiredDayDifference;
+    return undefined;
 }

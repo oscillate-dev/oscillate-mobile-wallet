@@ -119,22 +119,20 @@ export function handleURI(data, navigation) {
         );
     } else {
         /* Hop into the transfer stack */
-        navigation.navigate('Transfer');
+        navigation.navigate('ChoosePayee');
         /* Then navigate to the nested route, if needed */
         navigation.navigate(result.suggestedAction, {...result});
     }
 }
 
 export function parseURI(qrData) {
-    console.log(qrData);
     /* It's a URI, try and get the data from it */
     if (qrData.startsWith(Config.uriPrefix)) {
-        /* Remove the oscillatecoin:// prefix */
+        /* Remove the turtlecoin:// prefix */
         let data = qrData.replace(Config.uriPrefix, '');
+        let index = data.indexOf('?');
 
-        const index = data.indexOf('?');
-
-        /* Not valid URI */
+        /* Doesn't have any params */
         if (index === -1) {
             index = data.length;
         }
