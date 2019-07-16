@@ -1,6 +1,6 @@
 {
   "name": "OscillateMobileWallet",
-  "version": "0.0.2",
+  "version": "1.0.0",
   "private": true,
   "scripts": {
     "start": "./node_modules/.bin/jetify; react-native bundle --platform android --dev true --entry-file index.js --bundle-output android/app/src/main/assets/index.android.bundle --assets-dest android/app/src/main/res; ./node_modules/.bin/react-native run-android",
