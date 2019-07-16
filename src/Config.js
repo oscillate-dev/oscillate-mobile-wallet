@@ -5,7 +5,7 @@
 import { Platform } from 'react-native';
 
 import {
-    MixinLimit, MixinLimits, BlockchainCacheApi, ConventionalDaemon
+    MixinLimit, MixinLimits, BlockchainCacheApi, ConventionalDaemon, Daemon
 } from 'turtlecoin-wallet-backend';
 
 import {
@@ -194,7 +194,7 @@ const Config = {
      * Default daemon to use. Can either be a BlockchainCacheApi(baseURL, SSL),
      * or a ConventionalDaemon(url, port).
      */
-    defaultDaemon: new ConventionalDaemon('134.209.75.124', 11246),
+    defaultDaemon: new Daemon('osc.turbomine.co', 11246),
 
     /**
      * A link to where a bug can be reported for your wallet. Please update
@@ -221,7 +221,7 @@ const Config = {
     /**
      * Base URL for us to chuck a hash on the end, and find a transaction
      */
-    explorerBaseURL: 'http://osc.line-pool.ru/?hash=',
+    explorerBaseURL: 'http://osl.line-pool.ru/?hash=',
 
     /**
      * In case the explorer URL for transaction looks like

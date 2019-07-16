@@ -60,7 +60,7 @@
     "rn-nodeify": "^10.0.1",
     "stream-browserify": "^2.0.2",
     "turtlecoin-crypto": "^3.0.2",
-    "turtlecoin-wallet-backend": "https://github.com/turtlecoin/turtlecoin-wallet-backend-js.git",
+    "turtlecoin-wallet-backend": "3.3.0",
     "url": "^0.11.0",
     "vm-browserify": "1.1.0"
   },
