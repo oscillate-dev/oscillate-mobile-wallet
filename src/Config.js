@@ -211,7 +211,7 @@ const Config = {
     /**
      * Slogan phrase during wallet CreateScreen
      */
-    sloganCreateScreen: 'Fast. Secure. Easy.',
+    sloganCreateScreen: 'Changing the World',
 
     /**
      * Displayed in the settings screen
