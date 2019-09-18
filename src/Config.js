@@ -87,7 +87,7 @@ const Config = {
     /**
      * The minimum fee allowed for transactions, in ATOMIC units
      */
-    minimumFee: 10,
+    minimumFee: 5,
 
     /**
      * Mapping of height to mixin maximum and mixin minimum
@@ -194,7 +194,7 @@ const Config = {
      * Default daemon to use. Can either be a BlockchainCacheApi(baseURL, SSL),
      * or a ConventionalDaemon(url, port).
      */
-    defaultDaemon: new Daemon('osc.turbomine.co', 11246),
+    defaultDaemon: new Daemon('ducktownmining.zapto.org', 11246),
 
     /**
      * A link to where a bug can be reported for your wallet. Please update
@@ -206,7 +206,7 @@ const Config = {
     /**
      * This only controls the name in the settings screen.
      */
-    appName: 'Oscillate Wallet',
+    appName: 'OSL Wallet',
 
     /**
      * Slogan phrase during wallet CreateScreen
