@@ -221,7 +221,7 @@ const Config = {
     /**
      * Base URL for us to chuck a hash on the end, and find a transaction
      */
-    explorerBaseURL: 'http://osl.line-pool.ru/?hash=',
+    explorerBaseURL: 'http://ducktownmining.zapto.org/?hash=',
 
     /**
      * In case the explorer URL for transaction looks like
